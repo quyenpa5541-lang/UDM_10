@@ -1,9 +1,4 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.ComponentModel;
-using System.Data;
-using System.Drawing;
-using System.Text;
 using System.Windows.Forms;
 
 namespace Client
@@ -13,16 +8,16 @@ namespace Client
         public MainForm()
         {
             InitializeComponent();
-        }
 
-        private void txtServerIp_Click(object sender, EventArgs e)
-        {
+            dgvFiles.AllowUserToAddRows = false;
 
-        }
+            pnlDropZone.AllowDrop = true;
+            pnlDropZone.DragEnter += UploadArea_DragEnter;
+            pnlDropZone.DragDrop += UploadArea_DragDrop;
 
-        private void numericUpDown1_ValueChanged(object sender, EventArgs e)
-        {
-
+            lblDropHint.AllowDrop = true;
+            lblDropHint.DragEnter += UploadArea_DragEnter;
+            lblDropHint.DragDrop += UploadArea_DragDrop;
         }
 
         private void btnSelectFiles_Click(object sender, EventArgs e)
@@ -34,14 +29,46 @@ namespace Client
                 Filter = "Tất cả file (*.*)|*.*"
             };
 
-            if (dialog.ShowDialog() != DialogResult.OK)
-                return;
+            if (dialog.ShowDialog() == DialogResult.OK)
+            {
+                AddFiles(dialog.FileNames);
+            }
+        }
 
-            foreach (string path in dialog.FileNames)
+        private void AddFiles(string[] paths)
+        {
+            foreach (string path in paths)
             {
                 try
                 {
-                    var file = new System.IO.FileInfo(path);
+                    if (System.IO.Directory.Exists(path))
+                        continue;
+
+                    if (!System.IO.File.Exists(path))
+                    {
+                        throw new System.IO.FileNotFoundException(
+                            "File không còn tồn tại hoặc không truy cập được.");
+                    }
+
+                    string fullPath = System.IO.Path.GetFullPath(path);
+                    bool alreadyAdded = false;
+
+                    foreach (DataGridViewRow row in dgvFiles.Rows)
+                    {
+                        if (string.Equals(
+                            row.Tag as string,
+                            fullPath,
+                            StringComparison.OrdinalIgnoreCase))
+                        {
+                            alreadyAdded = true;
+                            break;
+                        }
+                    }
+
+                    if (alreadyAdded)
+                        continue;
+
+                    var file = new System.IO.FileInfo(fullPath);
 
                     int rowIndex = dgvFiles.Rows.Add(
                         file.Name,
@@ -52,7 +79,7 @@ namespace Client
                         ""
                     );
 
-                    dgvFiles.Rows[rowIndex].Tag = file.FullName;
+                    dgvFiles.Rows[rowIndex].Tag = fullPath;
                 }
                 catch (Exception ex)
                 {
@@ -68,24 +95,44 @@ namespace Client
             lblSummary.Text = $"{dgvFiles.Rows.Count} file";
         }
 
+        private void UploadArea_DragEnter(object? sender, DragEventArgs e)
+        {
+            e.Effect = e.Data?.GetDataPresent(DataFormats.FileDrop) == true
+                ? DragDropEffects.Copy
+                : DragDropEffects.None;
+        }
+
+        private void UploadArea_DragDrop(object? sender, DragEventArgs e)
+        {
+            if (e.Data?.GetData(DataFormats.FileDrop) is string[] paths)
+            {
+                AddFiles(paths);
+            }
+        }
+
+        private void txtServerIp_Click(object sender, EventArgs e)
+        {
+        }
+
+        private void numericUpDown1_ValueChanged(object sender, EventArgs e)
+        {
+        }
+
         private void lblDropHint_Click(object sender, EventArgs e)
         {
-
         }
 
         private void lblConnectionStatus_Click(object sender, EventArgs e)
         {
-
         }
 
         private void pnlDropZone_Paint(object sender, PaintEventArgs e)
         {
-
         }
 
-        private void dataGridView1_CellContentClick(object sender, DataGridViewCellEventArgs e)
+        private void dataGridView1_CellContentClick(
+            object sender, DataGridViewCellEventArgs e)
         {
-
         }
     }
 }
