@@ -38,9 +38,10 @@ namespace Server
                     try
                     {
                         TcpClient client = server.AcceptTcpClient();
-                        Interlocked.Increment(ref CurrentConnection);
+                        int activeConnections =
+                            Interlocked.Increment(ref CurrentConnection);
 
-                        if (CurrentConnection > _settings.MaxConnections)
+                        if (activeConnections > _settings.MaxConnections)
                         {
                             Interlocked.Decrement(ref CurrentConnection);
                             client.Close();
@@ -240,9 +241,22 @@ namespace Server
             if (string.IsNullOrWhiteSpace(request.FileName))
                 return new Result { Passed = false, ErrorCode = Protocol.ErrorBadRequest, Message = "Tên file không được để trống." };
 
-            char[] Invalid_Chars = Path.GetInvalidFileNameChars();
-            if (request.FileName.Any(chaR => Invalid_Chars.Contains(chaR)))
-                return new Result { Passed = false, ErrorCode = Protocol.ErrorBadRequest, Message = "Tên file chứa ký tự lạ." };
+            string normalized = request.FileName.Replace('\\', '/');
+            string safeName = Path.GetFileName(normalized);
+
+            if (safeName != normalized ||
+                string.IsNullOrWhiteSpace(safeName) ||
+                safeName == "." ||
+                safeName == ".." ||
+                safeName.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
+            {
+                return new Result
+                {
+                    Passed = false,
+                    ErrorCode = Protocol.ErrorBadRequest,
+                    Message = "Tên file không hợp lệ."
+                };
+            }
 
             if (request.Size <= 0)
                 return new Result { Passed = false, ErrorCode = Protocol.ErrorBadRequest, Message = "Dung lượng file không hợp lệ (âm hoặc 0)." };
@@ -251,8 +265,20 @@ namespace Server
             if (request.Size > maxFileSizeBytes)
                 return new Result { Passed = false, ErrorCode = Protocol.ErrorFileTooLarge, Message = $"Dung lượng file vượt mức cho phép ({_settings.MaxFileSizeMB}MB)." };
 
-            if (string.IsNullOrWhiteSpace(request.Sha256) || request.Sha256.Length != 64)
-                return new Result { Passed = false, ErrorCode = Protocol.ErrorInvalidFile, Message = "Mã SHA-256 không đủ 64 ký tự hex." };
+            if (string.IsNullOrWhiteSpace(request.Sha256) ||
+                request.Sha256.Length != 64 ||
+                !request.Sha256.All(c =>
+                (c >= '0' && c <= '9') ||
+                (c >= 'a' && c <= 'f') ||
+                (c >= 'A' && c <= 'F')))
+            {
+                return new Result
+                {
+                    Passed = false,
+                    ErrorCode = Protocol.ErrorInvalidFile,
+                    Message = "SHA-256 không hợp lệ."
+                };
+            }
 
             return new Result { Passed = true, ErrorCode = 0, Message = "Hợp lệ" };
         }
