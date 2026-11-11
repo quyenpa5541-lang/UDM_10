@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace Server;
@@ -29,7 +30,8 @@ public class FileStorage
     public async Task<string> SaveFileAsync(
         string fileName,
         Stream inputStream,
-        long fileSize)
+        long fileSize,
+        CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(fileName))
             throw new ArgumentException("Ten file khong hop le.");
@@ -43,12 +45,17 @@ public class FileStorage
         if (fileSize < 0)
             throw new ArgumentOutOfRangeException(nameof(fileSize));
 
-        string safeName = Path.GetFileName(
-            fileName.Replace('\\', '/'));
+        string normalized = fileName.Replace('\\', '/');
+        string safeName = Path.GetFileName(normalized);
 
-        if (string.IsNullOrWhiteSpace(safeName) ||
-            safeName == "." || safeName == "..")
+        if (safeName != normalized ||
+            string.IsNullOrWhiteSpace(safeName) ||
+            safeName == "." ||
+            safeName == ".." ||
+            safeName.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
+        {
             throw new ArgumentException("Ten file khong hop le.");
+        }
 
         string name = Path.GetFileNameWithoutExtension(safeName);
         string extension = Path.GetExtension(safeName);
@@ -60,6 +67,8 @@ public class FileStorage
 
         while (true)
         {
+            cancellationToken.ThrowIfCancellationRequested();
+
             string candidate = index == 0
                 ? safeName
                 : $"{name}_{index}{extension}";
@@ -97,20 +106,22 @@ public class FileStorage
                         buffer.Length, remaining);
 
                     int bytesRead = await inputStream.ReadAsync(
-                        buffer.AsMemory(0, count));
+                        buffer.AsMemory(0, count),
+                        cancellationToken);
 
                     if (bytesRead == 0)
                         throw new EndOfStreamException(
                             "Du lieu file chua du.");
 
                     await output.WriteAsync(
-                        buffer.AsMemory(0, bytesRead));
+                        buffer.AsMemory(0, bytesRead),
+                        cancellationToken);
 
                     remaining -= bytesRead;
                 }
             }
 
-            return filePath;
+            return Path.GetFileName(filePath);
         }
         catch
         {
@@ -127,3 +138,4 @@ public class FileStorage
         }
     }
 }
+
