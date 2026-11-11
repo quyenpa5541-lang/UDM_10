@@ -1,5 +1,9 @@
 ﻿UDM_10 – Multi-file Upload
 
+## 📋 PHÂN CÔNG NHIỆM VỤ THÀNH VIÊN
+
+### 📌 [NHẤN VÀO ĐÂY ĐỂ XEM BẢNG PHÂN CÔNG NHIỆM VỤ](https://docs.google.com/spreadsheets/d/1KMguyhWTR481Rnpr0hQo9tAgzgO9lcxFgBojjtJttQg/edit?usp=sharing)
+
 1. Giới thiệu
 
 UDM_10 là project mô phỏng hệ thống truyền nhiều file giữa Client và Server qua mạng TCP.
