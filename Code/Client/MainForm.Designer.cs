@@ -53,10 +53,9 @@
             // 
             // btnSelectFiles
             // 
-            btnSelectFiles.Location = new Point(17, 198);
-            btnSelectFiles.Margin = new Padding(2, 2, 2, 2);
+            btnSelectFiles.Location = new Point(21, 247);
             btnSelectFiles.Name = "btnSelectFiles";
-            btnSelectFiles.Size = new Size(90, 27);
+            btnSelectFiles.Size = new Size(112, 34);
             btnSelectFiles.TabIndex = 0;
             btnSelectFiles.Text = "Chọn file";
             btnSelectFiles.UseVisualStyleBackColor = true;
@@ -65,51 +64,46 @@
             // lblServerIp
             // 
             lblServerIp.AutoSize = true;
-            lblServerIp.Location = new Point(17, 24);
-            lblServerIp.Margin = new Padding(2, 0, 2, 0);
+            lblServerIp.Location = new Point(21, 30);
             lblServerIp.Name = "lblServerIp";
-            lblServerIp.Size = new Size(69, 20);
+            lblServerIp.Size = new Size(85, 25);
             lblServerIp.TabIndex = 1;
             lblServerIp.Text = "IP Server:";
             lblServerIp.Click += txtServerIp_Click;
             // 
             // txtServerIp
             // 
-            txtServerIp.Location = new Point(90, 22);
-            txtServerIp.Margin = new Padding(2, 2, 2, 2);
+            txtServerIp.Location = new Point(112, 27);
             txtServerIp.Name = "txtServerIp";
-            txtServerIp.Size = new Size(121, 27);
+            txtServerIp.Size = new Size(150, 31);
             txtServerIp.TabIndex = 2;
             txtServerIp.Text = "127.0.0.1";
             // 
             // label1
             // 
             label1.AutoSize = true;
-            label1.Location = new Point(222, 24);
-            label1.Margin = new Padding(2, 0, 2, 0);
+            label1.Location = new Point(277, 30);
             label1.Name = "label1";
-            label1.Size = new Size(38, 20);
+            label1.Size = new Size(48, 25);
             label1.TabIndex = 3;
             label1.Text = "Port:";
             // 
             // numServerPort
             // 
-            numServerPort.Location = new Point(265, 22);
-            numServerPort.Margin = new Padding(2, 2, 2, 2);
+            numServerPort.Location = new Point(331, 28);
             numServerPort.Maximum = new decimal(new int[] { 65535, 0, 0, 0 });
             numServerPort.Minimum = new decimal(new int[] { 1, 0, 0, 0 });
             numServerPort.Name = "numServerPort";
-            numServerPort.Size = new Size(144, 27);
+            numServerPort.Size = new Size(180, 31);
             numServerPort.TabIndex = 4;
             numServerPort.Value = new decimal(new int[] { 9000, 0, 0, 0 });
             numServerPort.ValueChanged += numericUpDown1_ValueChanged;
             // 
             // btnConnect
             // 
-            btnConnect.Location = new Point(426, 22);
-            btnConnect.Margin = new Padding(2, 2, 2, 2);
+            btnConnect.Location = new Point(533, 27);
             btnConnect.Name = "btnConnect";
-            btnConnect.Size = new Size(90, 27);
+            btnConnect.Size = new Size(112, 34);
             btnConnect.TabIndex = 5;
             btnConnect.Text = "Kết nối";
             btnConnect.UseVisualStyleBackColor = true;
@@ -117,10 +111,9 @@
             // lblConnectionStatus
             // 
             lblConnectionStatus.AutoSize = true;
-            lblConnectionStatus.Location = new Point(17, 57);
-            lblConnectionStatus.Margin = new Padding(2, 0, 2, 0);
+            lblConnectionStatus.Location = new Point(21, 71);
             lblConnectionStatus.Name = "lblConnectionStatus";
-            lblConnectionStatus.Size = new Size(92, 20);
+            lblConnectionStatus.Size = new Size(112, 25);
             lblConnectionStatus.TabIndex = 6;
             lblConnectionStatus.Text = "Chưa kết nối";
             lblConnectionStatus.Click += lblConnectionStatus_Click;
@@ -130,20 +123,18 @@
             pnlDropZone.AllowDrop = true;
             pnlDropZone.BorderStyle = BorderStyle.FixedSingle;
             pnlDropZone.Controls.Add(lblDropHint);
-            pnlDropZone.Location = new Point(17, 94);
-            pnlDropZone.Margin = new Padding(2, 2, 2, 2);
+            pnlDropZone.Location = new Point(21, 117);
             pnlDropZone.Name = "pnlDropZone";
-            pnlDropZone.Size = new Size(985, 85);
+            pnlDropZone.Size = new Size(1231, 106);
             pnlDropZone.TabIndex = 7;
             pnlDropZone.Paint += pnlDropZone_Paint;
             // 
             // lblDropHint
             // 
             lblDropHint.AutoSize = true;
-            lblDropHint.Location = new Point(394, 29);
-            lblDropHint.Margin = new Padding(2, 0, 2, 0);
+            lblDropHint.Location = new Point(493, 36);
             lblDropHint.Name = "lblDropHint";
-            lblDropHint.Size = new Size(141, 20);
+            lblDropHint.Size = new Size(168, 25);
             lblDropHint.TabIndex = 0;
             lblDropHint.Text = "Kéo thả file vào đây";
             lblDropHint.Click += lblDropHint_Click;
@@ -154,13 +145,12 @@
             dgvFiles.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
             dgvFiles.ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.AutoSize;
             dgvFiles.Columns.AddRange(new DataGridViewColumn[] { colFileName, colSize, colStatus, colProgress, colSpeed, colError });
-            dgvFiles.Location = new Point(11, 229);
-            dgvFiles.Margin = new Padding(2, 2, 2, 2);
+            dgvFiles.Location = new Point(21, 299);
             dgvFiles.Name = "dgvFiles";
             dgvFiles.ReadOnly = true;
             dgvFiles.RowHeadersWidth = 62;
             dgvFiles.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
-            dgvFiles.Size = new Size(985, 122);
+            dgvFiles.Size = new Size(1231, 153);
             dgvFiles.TabIndex = 8;
             // 
             // colFileName
@@ -208,31 +198,28 @@
             // btnUpload
             // 
             btnUpload.Enabled = false;
-            btnUpload.Location = new Point(887, 379);
-            btnUpload.Margin = new Padding(2, 2, 2, 2);
+            btnUpload.Location = new Point(1109, 474);
             btnUpload.Name = "btnUpload";
-            btnUpload.Size = new Size(90, 27);
+            btnUpload.Size = new Size(112, 34);
             btnUpload.TabIndex = 9;
             btnUpload.Text = "Upload";
             btnUpload.UseVisualStyleBackColor = true;
-            btnUpload.Click += btnUpload_Click_1;
             // 
             // lblSummary
             // 
             lblSummary.AutoSize = true;
-            lblSummary.Location = new Point(28, 379);
-            lblSummary.Margin = new Padding(2, 0, 2, 0);
+            lblSummary.Location = new Point(35, 474);
             lblSummary.Name = "lblSummary";
-            lblSummary.Size = new Size(42, 20);
+            lblSummary.Size = new Size(50, 25);
             lblSummary.TabIndex = 10;
             lblSummary.Text = "0 file";
             // 
             // MainForm
             // 
-            AutoScaleDimensions = new SizeF(8F, 20F);
+            AutoScaleDimensions = new SizeF(10F, 25F);
             AutoScaleMode = AutoScaleMode.Font;
             AutoSize = true;
-            ClientSize = new Size(1011, 470);
+            ClientSize = new Size(1264, 588);
             Controls.Add(lblSummary);
             Controls.Add(btnUpload);
             Controls.Add(dgvFiles);
@@ -244,7 +231,6 @@
             Controls.Add(txtServerIp);
             Controls.Add(lblServerIp);
             Controls.Add(btnSelectFiles);
-            Margin = new Padding(2, 2, 2, 2);
             Name = "MainForm";
             StartPosition = FormStartPosition.CenterScreen;
             Text = "UDM_10 - Upload nhiều file";
