@@ -15,6 +15,8 @@ namespace Client
         private static readonly TimeSpan ConnectionTimeout =
             TimeSpan.FromSeconds(5);
 
+        private bool uploading;
+
         public MainForm()
         {
             InitializeComponent();
@@ -32,6 +34,137 @@ namespace Client
             // Gắn sự kiện kết nối
             btnConnect.Click -= btnConnect_Click;
             btnConnect.Click += btnConnect_Click;
+            btnUpload.Click += btnUpload_Click;
+        }
+
+        private async void btnUpload_Click(object? sender, EventArgs e)
+        {
+            if (uploading)
+                return;
+
+            string host = txtServerIp.Text.Trim();
+            int port = (int)numServerPort.Value;
+            if (host.Length == 0 || port < 1 || port > 65535)
+            {
+                MessageBox.Show(this, "Nhập địa chỉ Server và cổng hợp lệ.");
+                return;
+            }
+
+            uploading = true;
+            btnUpload.Enabled = false;
+            btnSelectFiles.Enabled = false;
+            pnlDropZone.AllowDrop = false;
+            lblDropHint.AllowDrop = false;
+
+            using var cancellation = new CancellationTokenSource();
+            FormClosedEventHandler cancelOnClose = (_, _) => cancellation.Cancel();
+            FormClosed += cancelOnClose;
+            try
+            {
+                foreach (DataGridViewRow row in dgvFiles.Rows)
+                {
+                    if (row.Tag is not string path ||
+                        Equals(row.Cells[colStatus.Index].Value, "Hoàn tất"))
+                    {
+                        continue;
+                    }
+
+                    await UploadRowAsync(row, path, host, port, cancellation.Token);
+                    if (cancellation.IsCancellationRequested || IsDisposed)
+                        return;
+                }
+            }
+            finally
+            {
+                FormClosed -= cancelOnClose;
+                uploading = false;
+                if (!IsDisposed)
+                {
+                    btnSelectFiles.Enabled = true;
+                    pnlDropZone.AllowDrop = true;
+                    lblDropHint.AllowDrop = true;
+                    UpdateUploadButton();
+                }
+            }
+        }
+
+        private async Task UploadRowAsync(
+            DataGridViewRow row, string path, string host, int port, CancellationToken ct)
+        {
+            var statusCell = row.Cells[colStatus.Index];
+            var progressCell = row.Cells[colProgress.Index];
+            var speedCell = row.Cells[colSpeed.Index];
+            var errorCell = row.Cells[colError.Index];
+
+            statusCell.Value = "Đang tính SHA-256";
+            progressCell.Value = "0%";
+            speedCell.Value = "—";
+            errorCell.Value = "";
+
+            bool finished = false;
+            var state = new Progress<UploadState>(value =>
+            {
+                if (finished || IsDisposed || ct.IsCancellationRequested)
+                    return;
+
+                statusCell.Value = value switch
+                {
+                    UploadState.Hashing => "Đang tính SHA-256",
+                    UploadState.Connecting => "Đang kết nối",
+                    UploadState.Uploading => "Đang gửi",
+                    _ => statusCell.Value
+                };
+            });
+
+            var progress = new Progress<UploadProgress>(update =>
+            {
+                if (finished || IsDisposed || ct.IsCancellationRequested)
+                    return;
+
+                int percent = update.TotalBytes == 0
+                    ? 100
+                    : (int)(100.0 * update.BytesSent / update.TotalBytes);
+                progressCell.Value = $"{percent}%";
+                if (update.BytesSent >= update.TotalBytes)
+                    statusCell.Value = "Chờ Server xác nhận";
+
+                if (update.BytesPerSecond > 0)
+                    speedCell.Value = $"{update.BytesPerSecond / 1_000_000:N2} MB/s";
+            });
+
+            var result = await FileUploader.UploadAsync(
+                host, port, path, TimeSpan.FromSeconds(30), progress, state, ct);
+            finished = true;
+            if (IsDisposed || ct.IsCancellationRequested)
+                return;
+
+            if (result.Success)
+            {
+                statusCell.Value = "Hoàn tất";
+                progressCell.Value = "100%";
+            }
+            else
+            {
+                statusCell.Value = result.IsCanceled ? "Đã hủy" : "Lỗi";
+                errorCell.Value = result.Message;
+            }
+        }
+
+        private void UpdateUploadButton()
+        {
+            btnUpload.Enabled = false;
+            if (uploading)
+                return;
+
+            foreach (DataGridViewRow row in dgvFiles.Rows)
+            {
+                if (row.Tag is string &&
+                    !Equals(row.Cells[colStatus.Index].Value, "Hoàn tất"))
+                {
+                    btnUpload.Enabled = true;
+                    return;
+                }
+            }
         }
 
         // KẾT NỐI SERVER
@@ -214,6 +347,7 @@ namespace Client
             }
 
             lblSummary.Text = $"{dgvFiles.Rows.Count} file";
+            UpdateUploadButton();
         }
 
         // KÉO FILE VÀO GIAO DIỆN
