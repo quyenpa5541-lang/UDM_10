@@ -370,6 +370,13 @@ namespace Client
 
             if (result.Ok)
             {
+
+
+
+
+
+
+
                 row.Cells[colStatus.Index].Value = "Thành công";
                 row.Cells[colProgress.Index].Value = "100%";
                 if (!string.IsNullOrWhiteSpace(result.SavedAs))
@@ -470,6 +477,11 @@ namespace Client
         }
 
         private void btnUpload_Click_1(object sender, EventArgs e)
+        {
+
+        }
+
+        private void MainForm_Load(object sender, EventArgs e)
         {
 
         }
