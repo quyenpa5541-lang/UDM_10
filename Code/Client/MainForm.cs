@@ -1,4 +1,3 @@
-﻿
 using System;
 using System.Drawing;
 using System.Linq;
@@ -82,7 +81,7 @@ namespace Client
 
                 if (!ok)
                 {
-                    ShowConnectionError(message);
+ShowConnectionError(message);
                     return;
                 }
 
@@ -174,8 +173,7 @@ namespace Client
                         continue;
 
                     var file = new FileInfo(fullPath);
-
-                    int rowIndex = dgvFiles.Rows.Add(
+int rowIndex = dgvFiles.Rows.Add(
                         file.Name,
                         $"{file.Length:N0} byte",
                         "Chờ",
@@ -260,8 +258,7 @@ namespace Client
             pnlDropZone.AllowDrop = false;
             lblDropHint.AllowDrop = false;
             UpdateUploadButton();
-
-            // Mỗi file dùng một kết nối TCP riêng; số tác vụ đồng thời lấy từ appsettings.
+// Mỗi file dùng một kết nối TCP riêng; số tác vụ đồng thời lấy từ appsettings.
             using var semaphore = new SemaphoreSlim(Math.Max(1, _settings.ParallelUploads));
             try
             {
@@ -332,7 +329,7 @@ namespace Client
             bool finished = false;
             var state = new Progress<UploadState>(next =>
             {
-                if (finished || IsDisposed || Disposing || row.DataGridView == null) return;
+if (finished || IsDisposed || Disposing || row.DataGridView == null) return;
                 row.Cells[colStatus.Index].Value = next switch
                 {
                     UploadState.Hashing => "Đang băm SHA-256",
@@ -370,13 +367,6 @@ namespace Client
 
             if (result.Ok)
             {
-
-
-
-
-
-
-
                 row.Cells[colStatus.Index].Value = "Thành công";
                 row.Cells[colProgress.Index].Value = "100%";
                 if (!string.IsNullOrWhiteSpace(result.SavedAs))
@@ -395,7 +385,7 @@ namespace Client
                     result.Code == Protocol.ErrorClientClosed)
                 {
                     _serverReady = false;
-                    lblConnectionStatus.Text = "Mất kết nối - hãy PING lại";
+lblConnectionStatus.Text = "Mất kết nối - hãy PING lại";
                     lblConnectionStatus.ForeColor = Color.Red;
                 }
             }
@@ -482,6 +472,11 @@ namespace Client
         }
 
         private void MainForm_Load(object sender, EventArgs e)
+        {
+
+        }
+
+        private void MainForm_Load_1(object sender, EventArgs e)
         {
 
         }
