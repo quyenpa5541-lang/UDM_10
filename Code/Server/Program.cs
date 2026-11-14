@@ -1,26 +1,28 @@
 using System;
-using System.Threading.Tasks;
 using System.Windows.Forms;
-
 using Shared;
 
-namespace Server
+namespace Server;
+
+internal static class Program
 {
-    class Program
+    [STAThread]
+    private static void Main()
     {
-        [STAThread]
-        public static void Main(string[] args)
+        ApplicationConfiguration.Initialize();
+
+        try
         {
-            Application.EnableVisualStyles();
-            Application.SetCompatibleTextRenderingDefault(false);
-
-            AppSettings settings = new AppSettings();
-
-            ManageClients manageClients = new ManageClients(settings);
-
-            _ = Task.Run(() => manageClients.AcceptClients());
-
+            _ = AppSettings.Load();
             Application.Run(new ServerForm());
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(
+                "Không thể khởi chạy Server do cấu hình không hợp lệ:\n" + ex.Message,
+                "UDM_10 - Lỗi cấu hình",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Error);
         }
     }
 }
