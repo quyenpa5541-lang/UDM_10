@@ -1,3 +1,4 @@
+
 namespace Client
 {
     partial class MainForm
@@ -10,7 +11,7 @@ namespace Client
         /// <summary>
         /// Clean up any resources being used.
         /// </summary>
-        /// <param name="disposing">true if managed resources should be disposed; otherwise, false.</param>
+        /// <param name="disposing">true if managed resources; otherwise, false.</param>
         protected override void Dispose(bool disposing)
         {
             if (disposing && (components != null))
@@ -22,13 +23,10 @@ namespace Client
 
         #region Windows Form Designer generated code
 
-        /// <summary>
-        /// Required method for Designer support - do not modify
-        /// the contents of this method with the code editor.
-        /// </summary>
         private void InitializeComponent()
         {
             btnSelectFiles = new Button();
+            btnRemoveFiles = new Button();
             lblServerIp = new Label();
             txtServerIp = new TextBox();
             label1 = new Label();
@@ -46,13 +44,13 @@ namespace Client
             colError = new DataGridViewTextBoxColumn();
             btnUpload = new Button();
             lblSummary = new Label();
+
             ((System.ComponentModel.ISupportInitialize)numServerPort).BeginInit();
             pnlDropZone.SuspendLayout();
             ((System.ComponentModel.ISupportInitialize)dgvFiles).BeginInit();
             SuspendLayout();
-            // 
+
             // btnSelectFiles
-            // 
             btnSelectFiles.Location = new Point(21, 247);
             btnSelectFiles.Name = "btnSelectFiles";
             btnSelectFiles.Size = new Size(112, 34);
@@ -60,9 +58,18 @@ namespace Client
             btnSelectFiles.Text = "Chọn file";
             btnSelectFiles.UseVisualStyleBackColor = true;
             btnSelectFiles.Click += btnSelectFiles_Click;
-            // 
+
+            // btnRemoveFiles - NÚT XÓA FILE
+            btnRemoveFiles.Location = new Point(145, 247);
+            btnRemoveFiles.Name = "btnRemoveFiles";
+            btnRemoveFiles.Size = new Size(200, 34);
+            btnRemoveFiles.TabIndex = 11;
+            btnRemoveFiles.Text = "Xóa file đã chọn";
+            btnRemoveFiles.UseVisualStyleBackColor = true;
+            btnRemoveFiles.Visible = true;
+            btnRemoveFiles.Enabled = true;
+
             // lblServerIp
-            // 
             lblServerIp.AutoSize = true;
             lblServerIp.Location = new Point(21, 30);
             lblServerIp.Name = "lblServerIp";
@@ -70,26 +77,23 @@ namespace Client
             lblServerIp.TabIndex = 1;
             lblServerIp.Text = "IP Server:";
             lblServerIp.Click += txtServerIp_Click;
-            // 
+
             // txtServerIp
-            // 
             txtServerIp.Location = new Point(112, 27);
             txtServerIp.Name = "txtServerIp";
             txtServerIp.Size = new Size(150, 31);
             txtServerIp.TabIndex = 2;
             txtServerIp.Text = "127.0.0.1";
-            // 
+
             // label1
-            // 
             label1.AutoSize = true;
             label1.Location = new Point(277, 30);
             label1.Name = "label1";
             label1.Size = new Size(48, 25);
             label1.TabIndex = 3;
             label1.Text = "Port:";
-            // 
+
             // numServerPort
-            // 
             numServerPort.Location = new Point(331, 28);
             numServerPort.Maximum = new decimal(new int[] { 65535, 0, 0, 0 });
             numServerPort.Minimum = new decimal(new int[] { 1, 0, 0, 0 });
@@ -98,18 +102,16 @@ namespace Client
             numServerPort.TabIndex = 4;
             numServerPort.Value = new decimal(new int[] { 9000, 0, 0, 0 });
             numServerPort.ValueChanged += numericUpDown1_ValueChanged;
-            // 
+
             // btnConnect
-            // 
             btnConnect.Location = new Point(533, 27);
             btnConnect.Name = "btnConnect";
             btnConnect.Size = new Size(112, 34);
             btnConnect.TabIndex = 5;
             btnConnect.Text = "Kết nối";
             btnConnect.UseVisualStyleBackColor = true;
-            // 
+
             // lblConnectionStatus
-            // 
             lblConnectionStatus.AutoSize = true;
             lblConnectionStatus.Location = new Point(21, 71);
             lblConnectionStatus.Name = "lblConnectionStatus";
@@ -117,9 +119,8 @@ namespace Client
             lblConnectionStatus.TabIndex = 6;
             lblConnectionStatus.Text = "Chưa kết nối";
             lblConnectionStatus.Click += lblConnectionStatus_Click;
-            // 
+
             // pnlDropZone
-            // 
             pnlDropZone.AllowDrop = true;
             pnlDropZone.BorderStyle = BorderStyle.FixedSingle;
             pnlDropZone.Controls.Add(lblDropHint);
@@ -128,9 +129,8 @@ namespace Client
             pnlDropZone.Size = new Size(1231, 106);
             pnlDropZone.TabIndex = 7;
             pnlDropZone.Paint += pnlDropZone_Paint;
-            // 
+
             // lblDropHint
-            // 
             lblDropHint.AutoSize = true;
             lblDropHint.Location = new Point(493, 36);
             lblDropHint.Name = "lblDropHint";
@@ -138,65 +138,69 @@ namespace Client
             lblDropHint.TabIndex = 0;
             lblDropHint.Text = "Kéo thả file vào đây";
             lblDropHint.Click += lblDropHint_Click;
-            // 
+
             // dgvFiles
-            // 
             dgvFiles.AllowUserToAddRows = false;
             dgvFiles.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
-            dgvFiles.ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.AutoSize;
-            dgvFiles.Columns.AddRange(new DataGridViewColumn[] { colFileName, colSize, colStatus, colProgress, colSpeed, colError });
+            dgvFiles.ColumnHeadersHeightSizeMode =
+                DataGridViewColumnHeadersHeightSizeMode.AutoSize;
+
+            dgvFiles.Columns.AddRange(new DataGridViewColumn[]
+            {
+                colFileName,
+                colSize,
+                colStatus,
+                colProgress,
+                colSpeed,
+                colError
+            });
+
             dgvFiles.Location = new Point(21, 299);
             dgvFiles.Name = "dgvFiles";
             dgvFiles.ReadOnly = true;
             dgvFiles.RowHeadersWidth = 62;
             dgvFiles.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
+            dgvFiles.MultiSelect = true;
             dgvFiles.Size = new Size(1231, 153);
             dgvFiles.TabIndex = 8;
-            // 
+
             // colFileName
-            // 
             colFileName.HeaderText = "\tTên file";
             colFileName.MinimumWidth = 8;
             colFileName.Name = "colFileName";
             colFileName.ReadOnly = true;
-            // 
+
             // colSize
-            // 
             colSize.HeaderText = "Dung lượng";
             colSize.MinimumWidth = 8;
             colSize.Name = "colSize";
             colSize.ReadOnly = true;
-            // 
+
             // colStatus
-            // 
             colStatus.HeaderText = "\tTrạng thái";
             colStatus.MinimumWidth = 8;
             colStatus.Name = "colStatus";
             colStatus.ReadOnly = true;
-            // 
+
             // colProgress
-            // 
             colProgress.HeaderText = "Tiến trình";
             colProgress.MinimumWidth = 8;
             colProgress.Name = "colProgress";
             colProgress.ReadOnly = true;
-            // 
+
             // colSpeed
-            // 
             colSpeed.HeaderText = "Tốc độ";
             colSpeed.MinimumWidth = 8;
             colSpeed.Name = "colSpeed";
             colSpeed.ReadOnly = true;
-            // 
+
             // colError
-            // 
             colError.HeaderText = "Chi tiết lỗi";
             colError.MinimumWidth = 8;
             colError.Name = "colError";
             colError.ReadOnly = true;
-            // 
+
             // btnUpload
-            // 
             btnUpload.Enabled = false;
             btnUpload.Location = new Point(1109, 474);
             btnUpload.Name = "btnUpload";
@@ -204,22 +208,21 @@ namespace Client
             btnUpload.TabIndex = 9;
             btnUpload.Text = "Upload";
             btnUpload.UseVisualStyleBackColor = true;
-            // 
+
             // lblSummary
-            // 
             lblSummary.AutoSize = true;
             lblSummary.Location = new Point(35, 474);
             lblSummary.Name = "lblSummary";
             lblSummary.Size = new Size(50, 25);
             lblSummary.TabIndex = 10;
             lblSummary.Text = "0 file";
-            // 
+
             // MainForm
-            // 
             AutoScaleDimensions = new SizeF(10F, 25F);
             AutoScaleMode = AutoScaleMode.Font;
             AutoSize = true;
             ClientSize = new Size(1264, 588);
+
             Controls.Add(lblSummary);
             Controls.Add(btnUpload);
             Controls.Add(dgvFiles);
@@ -231,9 +234,14 @@ namespace Client
             Controls.Add(txtServerIp);
             Controls.Add(lblServerIp);
             Controls.Add(btnSelectFiles);
+            Controls.Add(btnRemoveFiles);
+
+            btnRemoveFiles.BringToFront();
+
             Name = "MainForm";
             StartPosition = FormStartPosition.CenterScreen;
             Text = "UDM_10 - Upload nhiều file";
+
             ((System.ComponentModel.ISupportInitialize)numServerPort).EndInit();
             pnlDropZone.ResumeLayout(false);
             pnlDropZone.PerformLayout();
@@ -245,6 +253,7 @@ namespace Client
         #endregion
 
         private Button btnSelectFiles;
+        private Button btnRemoveFiles;
         private Label lblServerIp;
         private TextBox txtServerIp;
         private Label label1;
