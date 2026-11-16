@@ -161,7 +161,7 @@ namespace Server
 
         private async Task HandleUploadAsync(Stream networkStream, RequestHeader header, string endpoint)
         {
-            TimeSpan timeout = TimeSpan.FromMinutes(5);
+            TimeSpan timeout = TimeSpan.FromMinutes(30);
             using var token = new CancellationTokenSource(timeout);
 
             try

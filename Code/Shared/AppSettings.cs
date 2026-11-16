@@ -11,7 +11,7 @@ public class AppSettings
 	public string Host { get; set; } = "127.0.0.1";
 	public int Port { get; set; } = 9000;
 	public string UploadDir { get; set; } = "uploads";
-	public int MaxFileSizeMB { get; set; } = 500;
+    public int MaxFileSizeMB { get; set; } = 5120;
 	public int MaxConnections { get; set; } = 100;
 	public int ParallelUploads { get; set; } = 3;
 	public int TimeoutSeconds { get; set; } = 30;
