@@ -50,6 +50,7 @@ namespace Client
             btnConnect.Click -= btnConnect_Click;
             btnConnect.Click += btnConnect_Click;
             btnUpload.Click += btnUpload_Click;
+            btnRemoveFiles.Click += btnRemoveFiles_Click;
             txtServerIp.TextChanged += (_, _) => InvalidatePing();
             numServerPort.ValueChanged += (_, _) => InvalidatePing();
             FormClosing += MainForm_FormClosing;
@@ -81,7 +82,7 @@ namespace Client
 
                 if (!ok)
                 {
-ShowConnectionError(message);
+                    ShowConnectionError(message);
                     return;
                 }
 
@@ -173,14 +174,14 @@ ShowConnectionError(message);
                         continue;
 
                     var file = new FileInfo(fullPath);
-int rowIndex = dgvFiles.Rows.Add(
-                        file.Name,
-                        $"{file.Length:N0} byte",
-                        "Chờ",
-                        "0%",
-                        "—",
-                        ""
-                    );
+                    int rowIndex = dgvFiles.Rows.Add(
+                                            file.Name,
+                                            $"{file.Length:N0} byte",
+                                            "Chờ",
+                                            "0%",
+                                            "—",
+                                            ""
+                                        );
 
                     dgvFiles.Rows[rowIndex].Tag = fullPath;
                 }
@@ -210,7 +211,59 @@ int rowIndex = dgvFiles.Rows.Add(
                     ? DragDropEffects.Copy
                     : DragDropEffects.None;
         }
+        // XÓA FILE ĐƯỢC CHỌN KHỎI DANH SÁCH CLIENT
+        private void btnRemoveFiles_Click(object? sender, EventArgs e)
+        {
+            // Không cho xóa khi đang upload
+            if (_isUploading)
+            {
+                MessageBox.Show(
+                    this,
+                    "Không thể xóa file khi đang upload!",
+                    "Thông báo",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Warning);
+                return;
+            }
 
+            // Lấy danh sách các dòng được chọn
+            var selectedRows = dgvFiles.SelectedRows
+                .Cast<DataGridViewRow>()
+                .ToArray();
+
+            if (selectedRows.Length == 0)
+            {
+                MessageBox.Show(
+                    this,
+                    "Vui lòng chọn file cần xóa!",
+                    "Thông báo",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Information);
+                return;
+            }
+
+            // Xác nhận trước khi xóa
+            DialogResult confirm = MessageBox.Show(
+                this,
+                $"Bạn có chắc chắn muốn xóa {selectedRows.Length} file khỏi danh sách?",
+                "Xác nhận xóa",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Question);
+
+            if (confirm != DialogResult.Yes)
+                return;
+
+            // Xóa các dòng được chọn
+            foreach (DataGridViewRow row in selectedRows)
+            {
+                if (!row.IsNewRow)
+                    dgvFiles.Rows.Remove(row);
+            }
+
+            // Cập nhật số lượng file và trạng thái nút Upload
+            UpdateSummary();
+            UpdateUploadButton();
+        }
         // THẢ FILE
         private void UploadArea_DragDrop(
             object? sender,
@@ -258,7 +311,7 @@ int rowIndex = dgvFiles.Rows.Add(
             pnlDropZone.AllowDrop = false;
             lblDropHint.AllowDrop = false;
             UpdateUploadButton();
-// Mỗi file dùng một kết nối TCP riêng; số tác vụ đồng thời lấy từ appsettings.
+            // Mỗi file dùng một kết nối TCP riêng; số tác vụ đồng thời lấy từ appsettings.
             using var semaphore = new SemaphoreSlim(Math.Max(1, _settings.ParallelUploads));
             try
             {
@@ -329,7 +382,7 @@ int rowIndex = dgvFiles.Rows.Add(
             bool finished = false;
             var state = new Progress<UploadState>(next =>
             {
-if (finished || IsDisposed || Disposing || row.DataGridView == null) return;
+                if (finished || IsDisposed || Disposing || row.DataGridView == null) return;
                 row.Cells[colStatus.Index].Value = next switch
                 {
                     UploadState.Hashing => "Đang băm SHA-256",
@@ -385,7 +438,7 @@ if (finished || IsDisposed || Disposing || row.DataGridView == null) return;
                     result.Code == Protocol.ErrorClientClosed)
                 {
                     _serverReady = false;
-lblConnectionStatus.Text = "Mất kết nối - hãy PING lại";
+                    lblConnectionStatus.Text = "Mất kết nối - hãy PING lại";
                     lblConnectionStatus.ForeColor = Color.Red;
                 }
             }
@@ -477,6 +530,11 @@ lblConnectionStatus.Text = "Mất kết nối - hãy PING lại";
         }
 
         private void MainForm_Load_1(object sender, EventArgs e)
+        {
+
+        }
+
+        private void MainForm_Load_2(object sender, EventArgs e)
         {
 
         }
