@@ -20,6 +20,8 @@ namespace Server
         private readonly AppSettings settings;
         private readonly FileLogger logger;
         private ManageClients? server;
+        private System.Threading.Tasks.Task? serverTask;
+
         private string? lastLogFile;
         private int lastLogLineCount;
         private bool isClosing;
@@ -130,7 +132,7 @@ namespace Server
 
         private async System.Threading.Tasks.Task StartServerAsync()
         {
-            if (server?.IsRunning == true)
+            if (serverTask != null && !serverTask.IsCompleted)
                 return;
 
             btnStart.Enabled = false;
@@ -138,10 +140,27 @@ namespace Server
             try
             {
                 server = new ManageClients(settings, logger);
-                await server.StartAsync();
+
+                ManageClients manager = server;
+
+                // Chạy AcceptClients trên luồng nền
+                System.Threading.Tasks.Task acceptTask =
+                    System.Threading.Tasks.Task.Run(() => manager.AcceptClients());
+
+                serverTask = acceptTask;
+
+                // Chờ Server khởi tạo
+                await System.Threading.Tasks.Task.Delay(300);
+
+                if (acceptTask.IsCompleted)
+                {
+                    throw new Exception(
+                        "Server không thể khởi động. Hãy kiểm tra Host, Port và nhật ký hoạt động.");
+                }
 
                 lblStatus.Text =
                     $"Trạng thái: Đang chạy tại {settings.Host}:{settings.Port}";
+
                 lblStatus.ForeColor = Color.Green;
                 btnStop.Enabled = true;
 
@@ -150,25 +169,32 @@ namespace Server
             }
             catch (Exception ex)
             {
-                if (server != null)
+                try
+                {
+                    server?.Stop();
+                }
+                catch { }
+
+                if (serverTask != null)
                 {
                     try
                     {
-                        await server.DisposeAsync();
+                        await serverTask;
                     }
-                    catch
-                    {
-                        // Preserve the original startup error for the user.
-                    }
+                    catch { }
                 }
 
                 server = null;
+                serverTask = null;
+
                 btnStart.Enabled = true;
                 btnStop.Enabled = false;
+
                 lblStatus.Text = "Trạng thái: Không thể khởi động";
                 lblStatus.ForeColor = Color.Red;
 
                 AddLog("Không thể khởi động Server: " + ex.Message);
+
                 MessageBox.Show(
                     this,
                     ex.Message,
@@ -177,7 +203,6 @@ namespace Server
                     MessageBoxIcon.Error);
             }
         }
-
         private async System.Threading.Tasks.Task StopServerAsync()
         {
             if (server == null)
@@ -187,8 +212,19 @@ namespace Server
 
             try
             {
-                await server.StopAsync();
-                await server.DisposeAsync();
+                ManageClients manager = server;
+                System.Threading.Tasks.Task? currentTask = serverTask;
+
+                // Đảm bảo luồng tiếp nhận kết nối đã được khởi tạo
+                if (currentTask != null && !currentTask.IsCompleted)
+                    await System.Threading.Tasks.Task.Delay(300);
+
+                // Dừng Server
+                manager.Stop();
+
+                // Chờ luồng tiếp nhận kết nối kết thúc
+                if (currentTask != null)
+                    await currentTask;
 
                 AddLog("Server đã dừng.");
             }
@@ -199,10 +235,14 @@ namespace Server
             finally
             {
                 server = null;
+                serverTask = null;
+
                 btnStart.Enabled = true;
                 btnStop.Enabled = false;
+
                 lblStatus.Text = "Trạng thái: Đã dừng";
                 lblStatus.ForeColor = Color.DarkOrange;
+
                 RefreshServerInfo();
             }
         }
@@ -213,7 +253,7 @@ namespace Server
                 return;
 
             lblConnections.Text =
-                $"Số kết nối: {server?.ActiveConnections ?? 0}";
+       $"Số kết nối: {Math.Max(0, ManageClients.CurrentConnection)}";
 
             string uploadFolder = Path.GetFullPath(settings.UploadDir);
 
