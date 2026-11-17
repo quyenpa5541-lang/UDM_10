@@ -1,7 +1,6 @@
-﻿
-using System;
-using System.Collections.Concurrent;
+﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 
 namespace Client
 {
@@ -10,34 +9,81 @@ namespace Client
         Waiting,
         Uploading,
         Completed,
-        Failed
+        Failed,
+        Cancelled
     }
 
     public class UploadQueueItem
     {
-        public ScannedFile File { get; set; }
+        private readonly object sync = new object();
+        private UploadStatus status = UploadStatus.Waiting;
+        private double progress;
+        private string errorMessage = string.Empty;
 
-        public UploadStatus Status { get; set; } = UploadStatus.Waiting;
+        public ScannedFile Source { get; }
 
-        public double Progress { get; set; } = 0;
-
-        public string ErrorMessage { get; set; } = string.Empty;
-
-        public UploadQueueItem(ScannedFile file)
+        public UploadStatus Status
         {
-            File = file;
+            get { lock (sync) { return status; } }
+        }
+
+        public double Progress
+        {
+            get { lock (sync) { return progress; } }
+        }
+
+        public string ErrorMessage
+        {
+            get { lock (sync) { return errorMessage; } }
+        }
+
+        public UploadQueueItem(ScannedFile source)
+        {
+            Source = source;
+        }
+
+        internal void SetState(
+            UploadStatus newStatus,
+            string error,
+            double? newProgress)
+        {
+            lock (sync)
+            {
+                status = newStatus;
+                errorMessage = error;
+
+                if (newProgress.HasValue)
+                {
+                    progress = newProgress.Value;
+                }
+            }
+        }
+
+        internal void SetProgress(double value)
+        {
+            lock (sync)
+            {
+                progress = value;
+            }
         }
     }
 
     public class UploadQueue
     {
-        private readonly ConcurrentQueue<UploadQueueItem> queue
-            = new ConcurrentQueue<UploadQueueItem>();
+        private readonly object lockObject = new object();
+
+        private readonly Queue<UploadQueueItem> pending
+            = new Queue<UploadQueueItem>();
 
         private readonly List<UploadQueueItem> allItems
             = new List<UploadQueueItem>();
 
-        private readonly object lockObject = new object();
+        private readonly HashSet<string> activePaths
+            = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        private int waitingCount;
+
+        public event Action<UploadQueueItem>? ItemChanged;
 
         public List<UploadQueueItem> GetAllItems()
         {
@@ -47,8 +93,7 @@ namespace Client
             }
         }
 
-        // Thêm một file vào hàng đợi
-        public bool AddFile(ScannedFile file)
+        public bool AddFile(ScannedFile? file)
         {
             if (file == null || !file.IsValid)
             {
@@ -59,14 +104,21 @@ namespace Client
 
             lock (lockObject)
             {
+                if (!activePaths.Add(file.FullPath))
+                {
+                    return false;
+                }
+
                 allItems.Add(item);
-                queue.Enqueue(item);
+                pending.Enqueue(item);
+                waitingCount++;
             }
 
+            OnItemChanged(item);
             return true;
         }
 
-        public int AddFiles(IEnumerable<ScannedFile> files)
+        public int AddFiles(IEnumerable<ScannedFile>? files)
         {
             if (files == null)
             {
@@ -86,45 +138,158 @@ namespace Client
             return addedCount;
         }
 
-        public bool TryGetNext(out UploadQueueItem item)
+        public bool TryGetNext([MaybeNullWhen(false)] out UploadQueueItem item)
         {
-            return queue.TryDequeue(out item);
+            UploadQueueItem? next = null;
+
+            lock (lockObject)
+            {
+                while (pending.Count > 0)
+                {
+                    UploadQueueItem candidate = pending.Dequeue();
+
+                    if (candidate.Status != UploadStatus.Waiting)
+                    {
+                        continue;
+                    }
+
+                    ChangeStatus(candidate, UploadStatus.Uploading, string.Empty);
+                    next = candidate;
+                    break;
+                }
+            }
+
+            if (next == null)
+            {
+                item = default;
+                return false;
+            }
+
+            OnItemChanged(next);
+            item = next;
+            return true;
         }
 
         public void UpdateStatus(
-            UploadQueueItem item,
+            UploadQueueItem? item,
             UploadStatus status,
             string errorMessage = "")
         {
-            if (item == null)
+            if (item == null || status == UploadStatus.Waiting)
             {
                 return;
             }
 
             lock (lockObject)
             {
-                item.Status = status;
-                item.ErrorMessage = errorMessage;
+                UploadStatus current = item.Status;
 
-                if (status == UploadStatus.Completed)
+                if (current != UploadStatus.Waiting &&
+                    current != UploadStatus.Uploading)
                 {
-                    item.Progress = 100;
+                    return;
                 }
+
+                ChangeStatus(
+                    item,
+                    status,
+                    status == UploadStatus.Failed ? errorMessage : string.Empty);
             }
+
+            OnItemChanged(item);
         }
 
         public void UpdateProgress(
-            UploadQueueItem item,
+            UploadQueueItem? item,
             double progress)
         {
-            if (item == null)
+            if (item == null || double.IsNaN(progress))
             {
                 return;
             }
 
             lock (lockObject)
             {
-                item.Progress = Math.Clamp(progress, 0, 100);
+                if (item.Status != UploadStatus.Uploading)
+                {
+                    return;
+                }
+
+                item.SetProgress(Math.Clamp(progress, 0, 100));
+            }
+
+            OnItemChanged(item);
+        }
+
+        public bool Remove(UploadQueueItem? item)
+        {
+            if (item == null)
+            {
+                return false;
+            }
+
+            lock (lockObject)
+            {
+                if (item.Status != UploadStatus.Waiting)
+                {
+                    return false;
+                }
+
+                ChangeStatus(item, UploadStatus.Cancelled, string.Empty);
+                allItems.Remove(item);
+            }
+
+            OnItemChanged(item);
+            return true;
+        }
+
+        public bool Retry(UploadQueueItem? item)
+        {
+            if (item == null)
+            {
+                return false;
+            }
+
+            lock (lockObject)
+            {
+                if (item.Status != UploadStatus.Failed ||
+                    !allItems.Contains(item) ||
+                    activePaths.Contains(item.Source.FullPath))
+                {
+                    return false;
+                }
+
+                ChangeStatus(item, UploadStatus.Waiting, string.Empty);
+                pending.Enqueue(item);
+            }
+
+            OnItemChanged(item);
+            return true;
+        }
+
+        public int RetryFailed()
+        {
+            int retried = 0;
+
+            foreach (UploadQueueItem item in GetAllItems())
+            {
+                if (Retry(item))
+                {
+                    retried++;
+                }
+            }
+
+            return retried;
+        }
+
+        public int ClearFinished()
+        {
+            lock (lockObject)
+            {
+                return allItems.RemoveAll(item =>
+                    item.Status == UploadStatus.Completed ||
+                    item.Status == UploadStatus.Failed ||
+                    item.Status == UploadStatus.Cancelled);
             }
         }
 
@@ -132,8 +297,70 @@ namespace Client
         {
             get
             {
-                return queue.Count;
+                lock (lockObject)
+                {
+                    return waitingCount;
+                }
             }
+        }
+
+        public int ActiveCount
+        {
+            get
+            {
+                lock (lockObject)
+                {
+                    return activePaths.Count;
+                }
+            }
+        }
+
+        private static bool IsActive(UploadStatus status)
+        {
+            return status == UploadStatus.Waiting ||
+                   status == UploadStatus.Uploading;
+        }
+
+        private void ChangeStatus(
+            UploadQueueItem item,
+            UploadStatus newStatus,
+            string error)
+        {
+            UploadStatus oldStatus = item.Status;
+
+            if (oldStatus == UploadStatus.Waiting &&
+                newStatus != UploadStatus.Waiting)
+            {
+                waitingCount--;
+            }
+            else if (oldStatus != UploadStatus.Waiting &&
+                     newStatus == UploadStatus.Waiting)
+            {
+                waitingCount++;
+            }
+
+            if (IsActive(oldStatus) && !IsActive(newStatus))
+            {
+                activePaths.Remove(item.Source.FullPath);
+            }
+            else if (!IsActive(oldStatus) && IsActive(newStatus))
+            {
+                activePaths.Add(item.Source.FullPath);
+            }
+
+            double? newProgress = newStatus switch
+            {
+                UploadStatus.Completed => 100,
+                UploadStatus.Waiting => 0,
+                _ => null
+            };
+
+            item.SetState(newStatus, error, newProgress);
+        }
+
+        private void OnItemChanged(UploadQueueItem item)
+        {
+            ItemChanged?.Invoke(item);
         }
     }
 }
