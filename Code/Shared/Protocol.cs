@@ -13,6 +13,7 @@ public static class Protocol
     public const int BufferSize = 64 * 1024;
 
     public const string CmdPing = "PING";
+    public const string CmdSession = "SESSION"; // Kết nối điều khiển duy trì
     public const string CmdUpload = "UPLOAD";
 
     // Các mã trạng thái dùng chung
