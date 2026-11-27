@@ -14,6 +14,7 @@ namespace Client
         private static readonly TimeSpan ConnectionTimeout = TimeSpan.FromSeconds(5);
         private readonly AppSettings _settings;
         private bool _serverReady;
+        private ServerSession? _session;
         private bool _isUploading;
         private CancellationTokenSource? _uploadCancellation;
 
@@ -50,24 +51,27 @@ namespace Client
             btnConnect.Click -= btnConnect_Click;
             btnConnect.Click += btnConnect_Click;
             btnUpload.Click += btnUpload_Click;
-            btnRemoveFiles.Click += btnRemoveFiles_Click;
             txtServerIp.TextChanged += (_, _) => InvalidatePing();
             numServerPort.ValueChanged += (_, _) => InvalidatePing();
             FormClosing += MainForm_FormClosing;
             UpdateUploadButton();
         }
 
-        // KẾT NỐI SERVER: dùng cùng hàm PING trong FileUploader để thống nhất protocol.
+        // Nút Kết nối / Ngắt kết nối, giữ riêng một socket điều khiển.
         private async void btnConnect_Click(object? sender, EventArgs e)
         {
             if (_isUploading) return;
+            if (_session?.IsActive == true)
+            {
+                DisconnectSession();
+                return;
+            }
 
             btnConnect.Enabled = false;
             _serverReady = false;
             UpdateUploadButton();
             lblConnectionStatus.Text = "Đang kết nối...";
             lblConnectionStatus.ForeColor = Color.DarkOrange;
-
             try
             {
                 string host = txtServerIp.Text.Trim();
@@ -75,22 +79,35 @@ namespace Client
                 if (string.IsNullOrWhiteSpace(host))
                     throw new ArgumentException("Bạn chưa nhập IP Server.");
 
-                var (ok, message) = await FileUploader.PingAsync(
-                    host, port, ConnectionTimeout, CancellationToken.None);
-
-                if (IsDisposed || Disposing) return;
-
-                if (!ok)
+                var session = await ServerSession.OpenAsync(host, port,
+                    ConnectionTimeout, CancellationToken.None);
+                if (IsDisposed || Disposing)
                 {
-                    ShowConnectionError(message);
+                    session.Dispose();
                     return;
                 }
 
+                _session = session;
+                session.Disconnected += () =>
+                {
+                    if (!IsDisposed && IsHandleCreated)
+                    {
+                        try { BeginInvoke(new Action(() => OnSessionLost(session))); }
+                        catch (InvalidOperationException) { }
+                    }
+                };
+                // Phòng trường hợp server ngắt ngay sau khi trả PONG.
+                if (!session.IsActive)
+                {
+                    OnSessionLost(session);
+                    return;
+                }
                 _serverReady = true;
-                lblConnectionStatus.Text = "Server sẵn sàng (PONG)";
+                txtServerIp.Enabled = false;
+                numServerPort.Enabled = false;
+                btnConnect.Text = "Ngắt kết nối";
+                lblConnectionStatus.Text = "Đang kết nối với Server (Online)";
                 lblConnectionStatus.ForeColor = Color.Green;
-                MessageBox.Show(this, "Kết nối Server thành công!", "Thông báo",
-                    MessageBoxButtons.OK, MessageBoxIcon.Information);
             }
             catch (Exception ex)
             {
@@ -104,6 +121,27 @@ namespace Client
                     UpdateUploadButton();
                 }
             }
+        }
+
+        private void DisconnectSession()
+        {
+            var session = _session;
+            _session = null;
+            session?.Dispose();
+            _serverReady = false;
+            txtServerIp.Enabled = true;
+            numServerPort.Enabled = true;
+            btnConnect.Text = "Kết nối";
+            lblConnectionStatus.Text = "Chưa kết nối";
+            lblConnectionStatus.ForeColor = Color.Red;
+            UpdateUploadButton();
+        }
+
+        private void OnSessionLost(ServerSession session)
+        {
+            if (!ReferenceEquals(_session, session) || IsDisposed || Disposing) return;
+            DisconnectSession();
+            lblConnectionStatus.Text = "Mất kết nối với Server";
         }
 
         // HIỂN THỊ LỖI KẾT NỐI
@@ -211,59 +249,7 @@ namespace Client
                     ? DragDropEffects.Copy
                     : DragDropEffects.None;
         }
-        // XÓA FILE ĐƯỢC CHỌN KHỎI DANH SÁCH CLIENT
-        private void btnRemoveFiles_Click(object? sender, EventArgs e)
-        {
-            // Không cho xóa khi đang upload
-            if (_isUploading)
-            {
-                MessageBox.Show(
-                    this,
-                    "Không thể xóa file khi đang upload!",
-                    "Thông báo",
-                    MessageBoxButtons.OK,
-                    MessageBoxIcon.Warning);
-                return;
-            }
 
-            // Lấy danh sách các dòng được chọn
-            var selectedRows = dgvFiles.SelectedRows
-                .Cast<DataGridViewRow>()
-                .ToArray();
-
-            if (selectedRows.Length == 0)
-            {
-                MessageBox.Show(
-                    this,
-                    "Vui lòng chọn file cần xóa!",
-                    "Thông báo",
-                    MessageBoxButtons.OK,
-                    MessageBoxIcon.Information);
-                return;
-            }
-
-            // Xác nhận trước khi xóa
-            DialogResult confirm = MessageBox.Show(
-                this,
-                $"Bạn có chắc chắn muốn xóa {selectedRows.Length} file khỏi danh sách?",
-                "Xác nhận xóa",
-                MessageBoxButtons.YesNo,
-                MessageBoxIcon.Question);
-
-            if (confirm != DialogResult.Yes)
-                return;
-
-            // Xóa các dòng được chọn
-            foreach (DataGridViewRow row in selectedRows)
-            {
-                if (!row.IsNewRow)
-                    dgvFiles.Rows.Remove(row);
-            }
-
-            // Cập nhật số lượng file và trạng thái nút Upload
-            UpdateSummary();
-            UpdateUploadButton();
-        }
         // THẢ FILE
         private void UploadArea_DragDrop(
             object? sender,
@@ -356,8 +342,8 @@ namespace Client
                 {
                     btnConnect.Enabled = true;
                     btnSelectFiles.Enabled = true;
-                    txtServerIp.Enabled = true;
-                    numServerPort.Enabled = true;
+                    txtServerIp.Enabled = !_serverReady;
+                    numServerPort.Enabled = !_serverReady;
                     pnlDropZone.AllowDrop = true;
                     lblDropHint.AllowDrop = true;
                     UpdateSummary();
@@ -437,9 +423,9 @@ namespace Client
                     result.Code == Protocol.ErrorTimeout ||
                     result.Code == Protocol.ErrorClientClosed)
                 {
-                    _serverReady = false;
-                    lblConnectionStatus.Text = "Mất kết nối - hãy PING lại";
-                    lblConnectionStatus.ForeColor = Color.Red;
+                    // Upload có socket riêng; lỗi một lượt không đồng nghĩa
+                    // phiên điều khiển đã mất. Monitor của ServerSession sẽ
+                    // cập nhật trạng thái nếu Server thật sự ngắt. 
                 }
             }
             UpdateSummary();
@@ -448,10 +434,14 @@ namespace Client
         private void InvalidatePing()
         {
             if (_isUploading) return;
-            _serverReady = false;
-            lblConnectionStatus.Text = "Chưa kết nối";
-            lblConnectionStatus.ForeColor = Color.Red;
-            UpdateUploadButton();
+            if (_session != null) DisconnectSession();
+            else
+            {
+                _serverReady = false;
+                lblConnectionStatus.Text = "Chưa kết nối";
+                lblConnectionStatus.ForeColor = Color.Red;
+                UpdateUploadButton();
+            }
         }
 
         private void UpdateUploadButton()
@@ -485,6 +475,7 @@ namespace Client
         {
             // Hủy thao tác mạng khi đóng cửa sổ; FileUploader sẽ dispose socket/file.
             _uploadCancellation?.Cancel();
+            DisconnectSession();
         }
 
         // CÁC SỰ KIỆN GIAO DIỆN CŨ
@@ -530,11 +521,6 @@ namespace Client
         }
 
         private void MainForm_Load_1(object sender, EventArgs e)
-        {
-
-        }
-
-        private void MainForm_Load_2(object sender, EventArgs e)
         {
 
         }

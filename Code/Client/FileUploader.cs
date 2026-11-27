@@ -1,4 +1,8 @@
-﻿using System.Diagnostics;
+﻿using System;
+using System.IO;
+using System.Threading;
+using System.Threading.Tasks;
+using System.Diagnostics;
 using System.Net.Sockets;
 using System.Security.Cryptography;
 
@@ -215,3 +219,70 @@ public sealed record UploadResult(
     string Message,
     string? SavedAs = null,
     bool Canceled = false);
+
+/// <summary>Phiên điều khiển dài hạn. Upload file vẫn dùng socket riêng.</summary>
+public sealed class ServerSession : IDisposable
+{
+    private readonly TcpClient _client;
+    private int _closed;
+    public bool IsActive => Volatile.Read(ref _closed) == 0;
+    public event Action? Disconnected;
+
+    private ServerSession(TcpClient client) => _client = client;
+
+    public static async Task<ServerSession> OpenAsync(string host, int port,
+        TimeSpan timeout, CancellationToken cancellationToken)
+    {
+        var tcp = new TcpClient();
+        try
+        {
+            await tcp.ConnectAsync(host, port, cancellationToken)
+                .AsTask().WaitAsync(timeout, cancellationToken);
+            var stream = tcp.GetStream();
+            await Protocol.WriteJsonAsync(stream,
+                new RequestHeader { Command = Protocol.CmdSession }, timeout, cancellationToken);
+            var response = await Protocol.ReadJsonAsync<ResponseHeader>(stream, timeout, cancellationToken);
+            if (response?.Code != Protocol.StatusSuccess ||
+                !string.Equals(response.Message, "PONG", StringComparison.OrdinalIgnoreCase))
+                throw new IOException("Server không chấp nhận phiên kết nối duy trì.");
+
+            var session = new ServerSession(tcp);
+            _ = session.WatchDisconnectAsync();
+            return session;
+        }
+        catch
+        {
+            tcp.Dispose();
+            throw;
+        }
+    }
+
+    private async Task WatchDisconnectAsync()
+    {
+        try
+        {
+            byte[] buffer = new byte[1];
+            var stream = _client.GetStream();
+            // Phía Server không gửi thêm dữ liệu trên kênh điều khiển.
+            while (await stream.ReadAsync(buffer.AsMemory(0, 1)) > 0) { }
+        }
+        catch (Exception ex) when (ex is IOException or ObjectDisposedException or SocketException)
+        {
+            // Server đóng hoặc socket đã bị hủy.
+        }
+        finally
+        {
+            if (Interlocked.Exchange(ref _closed, 1) == 0)
+            {
+                _client.Dispose();
+                Disconnected?.Invoke();
+            }
+        }
+    }
+
+    public void Dispose()
+    {
+        Interlocked.Exchange(ref _closed, 1);
+        _client.Dispose();
+    }
+}
