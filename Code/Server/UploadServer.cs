@@ -288,7 +288,7 @@ namespace Server
                 new ResponseHeader { Code = Protocol.StatusReady, Message = "READY" },
                 TimeSpan.FromSeconds(10), token).ConfigureAwait(false);
 
-            _logger.Info($"Upload từ {endpoint}: '{header.FileName}'");
+            _logger.Info($"Upload từ {endpoint}: '{header.FileName}' ({header.Size} bytes)");
 
             try
             {
