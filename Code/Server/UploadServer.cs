@@ -9,99 +9,166 @@ using Shared;
 
 namespace Server
 {
-    public class ManageClients
+    public sealed class ManageClients : IAsyncDisposable
     {
-        public static int CurrentConnection;
         private readonly AppSettings _settings;
         private readonly Upload _uploadHandler;
         private readonly FileLogger _logger;
-        private TcpListener? _server;
+        private TcpListener? _listener;
+        private CancellationTokenSource? _serverCts;
+        private Task? _acceptTask;
+        private int _currentConnections;
+
+        public static int CurrentConnection;
+
+        public bool IsRunning => _listener != null;
+        public int ActiveConnections => Volatile.Read(ref _currentConnections);
 
         public ManageClients(AppSettings appSettings, FileLogger? logger = null)
         {
             _settings = appSettings ?? throw new ArgumentNullException(nameof(appSettings));
             _logger = logger ?? new FileLogger();
-
             var storage = new FileStorage(_settings.UploadDir);
             _uploadHandler = new Upload(storage, _settings, _logger);
         }
 
+        public Task StartAsync()
+        {
+            if (IsRunning) return Task.CompletedTask;
+
+            IPAddress address = IPAddress.TryParse(_settings.Host, out var parsed)
+                ? parsed
+                : throw new InvalidDataException($"Địa chỉ IP Server không hợp lệ: {_settings.Host}");
+
+            var listener = new TcpListener(address, _settings.Port);
+            listener.Start();
+            _listener = listener;
+            _serverCts = new CancellationTokenSource();
+            _acceptTask = AcceptClientsAsync(_serverCts.Token);
+            _logger.Info($"Server đã khởi động {address}:{_settings.Port}");
+            return Task.CompletedTask;
+        }
+
         public void AcceptClients()
         {
-            try
-            {
-                IPEndPoint ipep = new IPEndPoint(IPAddress.Parse(_settings.Host), _settings.Port);
-                _server = new TcpListener(ipep);
-                _server.Start();
-                _logger.Info($"Server bắt đầu {ipep}");
-
-                while (true)
-                {
-                    try
-                    {
-                        TcpClient client = _server.AcceptTcpClient();
-                        int activeConnections = Interlocked.Increment(ref CurrentConnection);
-
-                        if (activeConnections > _settings.MaxConnections)
-                        {
-                            Interlocked.Decrement(ref CurrentConnection);
-                            _logger.Warning($"Từ chối {client.Client.RemoteEndPoint} - vượt quá số kết nối tối đa.");
-                            client.Close();
-                            continue;
-                        }
-
-                        _ = Task.Run(() => ProcessOfClient(client, _uploadHandler, _logger));
-                    }
-                    catch (SocketException)
-                    {
-                        break;
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.Error($"Lỗi tiếp nhận kết nối: {ex.Message}");
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.Error($"Lỗi không chạy server: {ex.Message}");
-            }
+            StartAsync().GetAwaiter().GetResult();
+            try { _acceptTask?.GetAwaiter().GetResult(); }
+            finally { StopAsync().GetAwaiter().GetResult(); }
         }
 
         public void Stop()
         {
-            try
-            {
-                _server?.Stop();
-                _logger.Info("Server dừng");
-            }
-            catch { }
+            _serverCts?.Cancel();
+            _listener?.Stop();
         }
 
-        public static async Task ProcessOfClient(TcpClient client, Upload uploadHandler, FileLogger logger)
+        private async Task AcceptClientsAsync(CancellationToken cancellationToken)
         {
-            string endpoint = client.Client.RemoteEndPoint?.ToString() ?? "unknown";
-            logger.Info($"Kết nối {endpoint} (active={CurrentConnection})");
+            var listener = _listener;
+            if (listener == null) return;
 
             try
             {
-                using NetworkStream stream = client.GetStream();
-                await uploadHandler.HandleRequestAsync(stream, endpoint);
+                while (!cancellationToken.IsCancellationRequested)
+                {
+                    TcpClient client = await listener
+                        .AcceptTcpClientAsync(cancellationToken)
+                        .ConfigureAwait(false);
+
+                    int active = Interlocked.Increment(ref _currentConnections);
+                    Interlocked.Exchange(ref CurrentConnection, active);
+
+                    if (active > _settings.MaxConnections)
+                    {
+                        Interlocked.Decrement(ref _currentConnections);
+                        Interlocked.Exchange(ref CurrentConnection, ActiveConnections);
+                        _logger.Warning(
+                            $"Từ chối {client.Client.RemoteEndPoint} - vượt quá số kết nối tối đa.");
+
+                        try
+                        {
+                            using (client)
+                            using (var rejectedStream = client.GetStream())
+                            {
+                                await Protocol.WriteJsonAsync(
+                                    rejectedStream,
+                                    new ResponseHeader
+                                    {
+                                        Code = Protocol.ErrorUnavailable,
+                                        Message = "Server đã đạt số kết nối tối đa."
+                                    },
+                                    TimeSpan.FromSeconds(3),
+                                    CancellationToken.None).ConfigureAwait(false);
+                            }
+                        }
+                        catch { client.Dispose(); }
+                        continue;
+                    }
+
+                    _ = ProcessClientAsync(client, cancellationToken);
+                }
             }
-            catch (Exception e)
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
+            catch (ObjectDisposedException) when (cancellationToken.IsCancellationRequested) { }
+            catch (SocketException) when (cancellationToken.IsCancellationRequested) { }
+            catch (Exception ex)
             {
-                logger.Warning($"Lỗi kết nối từ client {endpoint}: {e.Message}");
+                _logger.Error("Lỗi vòng lặp accept: " + ex.Message);
+            }
+        }
+
+        private async Task ProcessClientAsync(TcpClient client, CancellationToken serverToken)
+        {
+            string endpoint = client.Client.RemoteEndPoint?.ToString() ?? "unknown";
+            _logger.Info($"Máy khách đã kết nối {endpoint} (active={ActiveConnections})");
+
+            try
+            {
+                using (client)
+                using (var stream = client.GetStream())
+                {
+                    await _uploadHandler
+                        .HandleRequestAsync(stream, endpoint, serverToken)
+                        .ConfigureAwait(false);
+                }
+            }
+            catch (OperationCanceledException) when (serverToken.IsCancellationRequested) { }
+            catch (Exception ex)
+            {
+                _logger.Warning($"Lỗi kết nối từ client {endpoint}: {ex.Message}");
             }
             finally
             {
-                client.Close();
-                int active = Interlocked.Decrement(ref CurrentConnection);
-                logger.Info($"Mất kết nối {endpoint} (active={Math.Max(0, active)})");
+                int active = Interlocked.Decrement(ref _currentConnections);
+                Interlocked.Exchange(ref CurrentConnection, Math.Max(0, active));
+                _logger.Info($"Mất kết nối {endpoint} (active={Math.Max(0, active)})");
             }
         }
+
+        public async Task StopAsync()
+        {
+            if (_listener == null) return;
+
+            _serverCts?.Cancel();
+            _listener.Stop();
+            _listener = null;
+
+            if (_acceptTask != null)
+            {
+                try { await _acceptTask.ConfigureAwait(false); }
+                catch (OperationCanceledException) { }
+            }
+
+            _serverCts?.Dispose();
+            _serverCts = null;
+            _acceptTask = null;
+            _logger.Info("Server dừng");
+        }
+
+        public async ValueTask DisposeAsync() => await StopAsync().ConfigureAwait(false);
     }
 
-    public class Upload
+    public sealed class Upload
     {
         private readonly FileStorage _storage;
         private readonly AppSettings _settings;
@@ -112,195 +179,215 @@ namespace Server
         {
             _storage = storage;
             _settings = settings;
-            _validator = new Validator(_settings);
+            _validator = new Validator(settings);
             _logger = logger ?? new FileLogger();
         }
 
-        public async Task HandleRequestAsync(Stream networkStream, string endpoint = "unknown")
+        public async Task HandleRequestAsync(
+            Stream networkStream, string endpoint, CancellationToken serverToken)
         {
-            var timeout = TimeSpan.FromSeconds(_settings.TimeoutSeconds);
-            using var token = new CancellationTokenSource(timeout);
+            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(serverToken);
+            CancellationToken token = timeoutCts.Token;
+            TimeSpan readTimeout = TimeSpan.FromSeconds(_settings.TimeoutSeconds);
 
             try
             {
-                var Obj = await Protocol.ReadJsonAsync<RequestHeader>(networkStream, timeout, token.Token);
-                if (Obj == null)
+                RequestHeader? request = await Protocol
+                    .ReadJsonAsync<RequestHeader>(networkStream, readTimeout, token)
+                    .ConfigureAwait(false);
+
+                if (request == null)
                 {
-                    await SendErrorAsync(networkStream, Protocol.ErrorBadRequest, "Request rỗng.", token.Token);
+                    await SendError(networkStream, Protocol.ErrorBadRequest,
+                        "Request rỗng.", token).ConfigureAwait(false);
                     return;
                 }
 
-                if (Obj.Command == Protocol.CmdPing)
+                if (request.Command == Protocol.CmdSession)
                 {
-                    var response = new ResponseHeader
+                    await Protocol.WriteJsonAsync(
+                        networkStream,
+                        new ResponseHeader { Code = Protocol.StatusSuccess, Message = "PONG" },
+                        readTimeout, token).ConfigureAwait(false);
+
+                    byte[] probe = new byte[1];
+                    while (await networkStream
+                        .ReadAsync(probe.AsMemory(0, 1), serverToken)
+                        .ConfigureAwait(false) > 0)
                     {
-                        Code = Protocol.StatusSuccess,
-                        Message = "PONG"
-                    };
-                    await Protocol.WriteJsonAsync(networkStream, response, timeout, token.Token);
+                        throw new InvalidDataException(
+                            "Dữ liệu không hợp lệ trên phiên điều khiển.");
+                    }
+                    return;
                 }
-                else if (Obj.Command == Protocol.CmdUpload)
+
+                if (request.Command == Protocol.CmdPing)
                 {
-                    await HandleUploadAsync(networkStream, Obj, endpoint);
+                    await Protocol.WriteJsonAsync(
+                        networkStream,
+                        new ResponseHeader { Code = Protocol.StatusSuccess, Message = "PONG" },
+                        readTimeout, token).ConfigureAwait(false);
+                    return;
                 }
-                else
+
+                if (request.Command != Protocol.CmdUpload)
                 {
-                    _logger.Warning($"từ chối {endpoint}: Command không hợp lệ ({Obj.Command})");
-                    await SendErrorAsync(networkStream, Protocol.ErrorBadRequest, "Command không hợp lệ.", token.Token);
+
+                    await SendError(networkStream, Protocol.ErrorBadRequest,
+                        "Command Upload không hợp lệ.", token).ConfigureAwait(false);
+                    return;
                 }
+
+                timeoutCts.CancelAfter(TimeSpan.FromMinutes(20));
+
+                await HandleUploadAsync(networkStream, request, endpoint, token)
+                    .ConfigureAwait(false);
             }
+            catch (OperationCanceledException) when (serverToken.IsCancellationRequested) { }
             catch (OperationCanceledException)
             {
-                _logger.Warning($"Quá thời hạn {endpoint}: Hết thời gian chờ đọc lệnh.");
-            }
-            catch (Exception ex)
-            {
-                _logger.Error($"Lỗi khi đọc dữ liệu điều khiển từ {endpoint}: {ex.Message}");
-            }
-        }
-
-        private async Task HandleUploadAsync(Stream networkStream, RequestHeader header, string endpoint)
-        {
-            TimeSpan timeout = TimeSpan.FromMinutes(30);
-            using var token = new CancellationTokenSource(timeout);
-
-            try
-            {
-                var validateResult = _validator.ValidateUpload(header);
-                if (!validateResult.Passed)
+                _logger.Warning($"Quá thời hạn {endpoint}");
+                try
                 {
-                    _logger.Warning($"Từ chối {endpoint} [{validateResult.ErrorCode}]: {validateResult.Message}");
-                    await SendErrorAsync(networkStream, validateResult.ErrorCode, validateResult.Message, token.Token);
-                    return;
+                    await SendError(networkStream, Protocol.ErrorTimeout,
+                        "Hết thời gian chờ.", CancellationToken.None).ConfigureAwait(false);
                 }
-
-                var readyResponse = new ResponseHeader
-                {
-                    Code = Protocol.StatusReady,
-                    Message = "READY"
-                };
-                await Protocol.WriteJsonAsync(networkStream, readyResponse, TimeSpan.FromSeconds(10), token.Token);
-
-                _logger.Info($"Upload bắt đầu {endpoint} '{header.FileName}' ({header.Size} bytes)");
-
-                string savedFileName = await _storage.SaveVerifiedFileAsync(
-                    fileName: header.FileName,
-                    inputStream: networkStream,
-                    fileSize: header.Size,
-                    expectedSha256: header.Sha256,
-                    cancellationToken: token.Token
-                );
-
-                var successResponse = new ResponseHeader
-                {
-                    Code = Protocol.StatusSuccess,
-                    Message = "Upload thành công",
-                    SavedAs = savedFileName
-                };
-                await Protocol.WriteJsonAsync(networkStream, successResponse, TimeSpan.FromSeconds(10), token.Token);
-
-                _logger.Info($"Upload xong {endpoint} '{header.FileName}' -> '{savedFileName}'");
-            }
-            catch (InvalidDataException ex)
-            {
-
-                _logger.Warning($"Upload lỗi {endpoint} '{header.FileName}': {ex.Message}");
-                await SendErrorAsync(networkStream, Protocol.ErrorInvalidFile, ex.Message, token.Token);
+                catch { }
             }
             catch (EndOfStreamException ex)
             {
-
-                _logger.Warning($"Upload không hoàn tất {endpoint} '{header.FileName}': {ex.Message}");
-            }
-            catch (OperationCanceledException)
-            {
-                _logger.Warning($"Upload quá thời hạn {endpoint} '{header.FileName}'");
-                await SendErrorAsync(networkStream, Protocol.ErrorTimeout, "Hết thời gian upload file.", CancellationToken.None);
+                _logger.Warning($"Upload bị hủy giữa chừng ở {endpoint}: {ex.Message}");
             }
             catch (Exception ex)
             {
-                _logger.Error($"Lỗi khi upload từ {endpoint}: {ex.Message}");
-                await SendErrorAsync(networkStream, Protocol.ErrorServer, "Lỗi xử lý lưu file tại Server.", CancellationToken.None);
+                _logger.Error($"Lỗi xử lý request từ {endpoint}: {ex.Message}");
+                try
+                {
+                    await SendError(networkStream, Protocol.ErrorServer,
+                        "Server gặp lỗi khi xử lý yêu cầu.", CancellationToken.None)
+                        .ConfigureAwait(false);
+                }
+                catch { }
             }
         }
 
-        private static async Task SendErrorAsync(Stream stream, int code, string message, CancellationToken token)
+        private async Task HandleUploadAsync(
+            Stream networkStream, RequestHeader header, string endpoint, CancellationToken token)
         {
+            var validation = _validator.ValidateUpload(header);
+            if (!validation.Passed)
+            {
+                _logger.Warning($"Từ chối {endpoint} [{validation.ErrorCode}]: {validation.Message}");
+                await SendError(networkStream, validation.ErrorCode, validation.Message, token)
+                    .ConfigureAwait(false);
+                return;
+            }
+
+            await Protocol.WriteJsonAsync(
+                networkStream,
+                new ResponseHeader { Code = Protocol.StatusReady, Message = "READY" },
+                TimeSpan.FromSeconds(10), token).ConfigureAwait(false);
+
+            _logger.Info($"Upload từ {endpoint}: '{header.FileName}' ({header.Size} bytes)");
+
             try
             {
-                var errorResponse = new ResponseHeader { Code = code, Message = message };
-                await Protocol.WriteJsonAsync(stream, errorResponse, TimeSpan.FromSeconds(5), token);
+                string savedName = await _storage.SaveVerifiedFileAsync(
+                    header.FileName, networkStream, header.Size, header.Sha256, token)
+                    .ConfigureAwait(false);
+
+                await Protocol.WriteJsonAsync(
+                    networkStream,
+                    new ResponseHeader
+                    {
+                        Code = Protocol.StatusSuccess,
+                        Message = "Upload thành công",
+                        SavedAs = savedName
+                    },
+                    TimeSpan.FromSeconds(10), token).ConfigureAwait(false);
+
+                _logger.Info($"Tên file sau khi được chỉnh để lưu vào danh sách: '{savedName}'");
             }
-            catch { }
+            catch (InvalidDataException ex)
+            {
+                _logger.Warning($"Upload lỗi {endpoint} '{header.FileName}': {ex.Message}");
+                await SendError(networkStream, Protocol.ErrorInvalidFile, ex.Message, token)
+                    .ConfigureAwait(false);
+            }
+            catch (EndOfStreamException)
+            {
+                _logger.Warning($"Upload không hoàn tất {endpoint} '{header.FileName}'");
+                throw;
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (IOException ex)
+            {
+                _logger.Error($"Lỗi ghi file tại {endpoint}: {ex.Message}");
+                await SendError(networkStream, Protocol.ErrorServer,
+                    "Không thể ghi file trên Server.", token).ConfigureAwait(false);
+            }
         }
+
+        private static Task SendError(
+            Stream stream, int code, string message, CancellationToken token) =>
+            Protocol.WriteJsonAsync(
+                stream,
+                new ResponseHeader { Code = code, Message = message },
+                TimeSpan.FromSeconds(5), token);
     }
 
-    public class Validator
+    public sealed class Validator
     {
         private readonly AppSettings _settings;
 
-        public class Result
+        public sealed class Result
         {
-            public bool Passed { get; set; }
-            public int ErrorCode { get; set; }
-            public string Message { get; set; } = string.Empty;
+            public bool Passed { get; init; }
+            public int ErrorCode { get; init; }
+            public string Message { get; init; } = string.Empty;
         }
 
-        public Validator(AppSettings settings)
-        {
-            _settings = settings;
-        }
+        public Validator(AppSettings settings) => _settings = settings;
 
         public Result ValidateUpload(RequestHeader? request)
         {
             if (request == null)
-                return new Result { Passed = false, ErrorCode = Protocol.ErrorBadRequest, Message = "Upload không hợp lệ (null)." };
+                return Fail(Protocol.ErrorBadRequest, "Upload không hợp lệ.");
 
             if (string.IsNullOrWhiteSpace(request.FileName))
-                return new Result { Passed = false, ErrorCode = Protocol.ErrorBadRequest, Message = "Tên file không được để trống." };
+                return Fail(Protocol.ErrorBadRequest, "Tên file không được để trống.");
 
             string normalized = request.FileName.Replace('\\', '/');
             string safeName = Path.GetFileName(normalized);
 
             if (safeName != normalized ||
                 safeName.Length > 200 ||
-                string.IsNullOrWhiteSpace(safeName) ||
-                safeName == "." ||
-                safeName == ".." ||
+                safeName is "." or ".." ||
                 safeName.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0 ||
                 safeName.EndsWith(".part", StringComparison.OrdinalIgnoreCase) ||
                 safeName.EndsWith('.') ||
                 safeName.EndsWith(' ') ||
                 IsReservedWindowsName(safeName))
             {
-                return new Result
-                {
-                    Passed = false,
-                    ErrorCode = Protocol.ErrorBadRequest,
-                    Message = "Tên file không hợp lệ."
-                };
+                return Fail(Protocol.ErrorBadRequest, "Tên file không hợp lệ.");
             }
 
             if (request.Size <= 0)
-                return new Result { Passed = false, ErrorCode = Protocol.ErrorBadRequest, Message = "Dung lượng file không hợp lệ (âm hoặc 0)." };
+                return Fail(Protocol.ErrorBadRequest, "Dung lượng file phải lớn hơn 0.");
 
-            long maxFileSizeBytes = (long)_settings.MaxFileSizeMB * 1024 * 1024;
-            if (request.Size > maxFileSizeBytes)
-                return new Result { Passed = false, ErrorCode = Protocol.ErrorFileTooLarge, Message = $"Dung lượng file vượt mức cho phép ({_settings.MaxFileSizeMB}MB)." };
+            long maxBytes = (long)_settings.MaxFileSizeMB * 1024 * 1024;
+            if (request.Size > maxBytes)
+                return Fail(Protocol.ErrorFileTooLarge,
+                    $"File vượt giới hạn {_settings.MaxFileSizeMB} MB.");
 
             if (string.IsNullOrWhiteSpace(request.Sha256) ||
                 request.Sha256.Length != 64 ||
                 !request.Sha256.All(Uri.IsHexDigit))
             {
-                return new Result
-                {
-                    Passed = false,
-                    ErrorCode = Protocol.ErrorInvalidFile,
-                    Message = "SHA-256 không hợp lệ."
-                };
+                return Fail(Protocol.ErrorInvalidFile, "SHA-256 không hợp lệ.");
             }
 
-            return new Result { Passed = true, ErrorCode = 0, Message = "Hợp lệ" };
+            return new Result { Passed = true, Message = "Hợp lệ" };
         }
 
         private static bool IsReservedWindowsName(string fileName)
@@ -313,5 +400,8 @@ namespace Server
             };
             return reserved.Contains(stem, StringComparer.OrdinalIgnoreCase);
         }
+
+        private static Result Fail(int code, string message) =>
+            new() { Passed = false, ErrorCode = code, Message = message };
     }
 }
